@@ -1,0 +1,99 @@
+this Xenomai RTDM driver is intended to synchronize Xenomai RT threads to an external clock via interrupts on a GPIO pin.
+
+it enables an RT thread to wait for an edge (rising or falling) on an arbitrary pin.
+
+Tested on beaglebone. Should not be much different for other ARM platforms.
+Doubles as a GPIO RTDM driver to read/write/toggle GPIO pins from an RT thread,
+see the GPIO_IRQ_PIN_* ioctls and the usage example in gpio-irq-test.c .
+
+Assumes config-pin has been used already for proper pinmuxing, see load.sh for an example.
+
+To exercise the demo:
+---------------------
+
+- connect P8.9 to some timing source (I used the 1kHz reference clock of my scope with a 100 ohm resistor in series)
+- scope pins P8.9, P8.10 and P8.11
+- run sudo ./load.sh
+
+P8.10 will change as the RTDM driver IRQ routine starts, roughly 5uS post the trigger.
+
+P8.11 will change as the userspace RT thread becomes unblocked, roughly 10-15uS post trigger.
+
+see http://static.mah.priv.at/public/rtdm-chain.png
+
+P8.9 = green = clock
+P8.10 = red = RTDM irq handler started
+P8.11 = yellow =  userspace RT thread becomes unblocked
+
+
+To change the pins, note currently "kernel GPIO numbers" are used.
+To map a certain P8/P9 pin to a kernel GPIO number, see
+
+https://github.com/cdsteinkuehler/beaglebone-black-pinmux/blob/hal_pru_generic/pinmux.ods
+for a given P8/P9 pin, take the values from the 'GPIO bank' and 'GPIO pin' columns (N and O).
+The pin number is GPIO_Bank_Number * 32 + GPIO_Pin_number.
+
+Alternatively, look at the config-pin script, for example P8.9:
+
+P8_09_PRU="101"
+P8_09_GPIO="69"        <---- kernel GPIO number
+P8_09_PIN="gpio"
+P8_09_PINMUX="default gpio gpio_pu gpio_pd timer"
+P8_09_INFO="gpio2_5 default gpio2_5 gpio2_5 gpio2_5 timer5"
+P8_09_CAPE="cape-universal cape-universaln"
+
+
+
+
+inspecting while load.sh is running:
+------------------------------------
+
+mah@epig:~/gpio-irq-rtdm$ cat /proc/xenomai/stat
+CPU  PID    MSW        CSW        PF    STAT       %CPU  NAME
+  0  0      0          6913006    0     00500080   99.3  ROOT
+  0  14341  0          21460      0     00300182    0.0  trivial         <--- userland RT thread
+  0  0      0          902569     0     00000000    0.0  IRQ67: [timer]
+  0  0      0          21459      0     00000000    0.0  IRQ197: gpio69  <--- RTDM IRQ thread
+  
+mah@epig:~/gpio-irq-rtdm$ cat /proc/xenomai/irq
+IRQ         CPU0
+ 67:      765486         [timer]
+197:     3550220         gpio69                <---- RTDM IRQ handler
+1027:     2615635         [virtual]
+
+The second field (count) should increase continuously.
+
+Driver information:
+
+mah@epig:~/gpio-irq-rtdm$ cat /proc/xenomai/rtdm/gpio_irq/information
+driver:		gpio_irq_rtdm
+version:	0.0.0
+peripheral:	GPIO_IRQ RTDM
+provider:	machinekit
+class:		224
+sub-class:	4711
+flags:		NAMED_DEVICE
+lock count:	1
+
+Module parameters, doubling as statistics counters:
+
+
+mah@epig:~/gpio-irq-rtdm$ cat /sys/module/gpio_irq_rtdm/parameters/
+completions  interrupts   timing_pin
+
+mah@epig:~/gpio-irq-rtdm$ cat /sys/module/gpio_irq_rtdm/parameters/completions
+58032
+
+mah@epig:~/gpio-irq-rtdm$ cat /sys/module/gpio_irq_rtdm/parameters/interrupts
+64073
+
+
+Some inspirations were taken from code by Pierre Ficheux:
+see https://github.com/pficheux/raspberry_pi/tree/master/Xenomai/RT_irq
+
+Michael Haberler 6/2015
+
+
+
+
+
